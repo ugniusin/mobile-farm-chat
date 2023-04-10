@@ -1,0 +1,16 @@
+version: "3.9"
+services:
+  app:
+    build:
+      dockerfile: Dockerfile
+      context: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+    networks:
+      - mobile-farm-api_api_network
+
+networks:
+  mobile-farm-api_api_network:
+    external: true
