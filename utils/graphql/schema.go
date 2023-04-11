@@ -1,25 +1,23 @@
-package handlers
+package graphql
 
 import (
-	"context"
 	"log"
 
 	"github.com/graphql-go/graphql"
-	"github.com/redis/go-redis/v9"
+	"github.com/ugniusin/mobile-farm-chat/utils/redis"
 )
 
-var schema graphql.Schema
+var memoizedSchema *graphql.Schema
 
-var rdb = PubSubClient()
+func Schema() graphql.Schema {
+	if memoizedSchema != nil {
+		return *memoizedSchema
+	}
 
-func init() {
 	subscriptionMessageType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "SubscriptionMessage",
 		Fields: graphql.Fields{
-			"channel": &graphql.Field{
-				Type: graphql.String,
-			},
-			"message": &graphql.Field{
+			"payload": &graphql.Field{
 				Type: graphql.String,
 			},
 		},
@@ -27,7 +25,7 @@ func init() {
 
 	// Define a GraphQL schema
 	subscriptionFields := graphql.Fields{
-		"event": &graphql.Field{
+		"events": &graphql.Field{
 			Type: subscriptionMessageType,
 			Args: graphql.FieldConfigArgument{
 				"channel": &graphql.ArgumentConfig{
@@ -36,15 +34,13 @@ func init() {
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return struct {
-					Channel string
-					Message interface{}
+					Payload interface{}
 				}{
-					Channel: p.Args["channel"].(string),
-					Message: p.Source,
+					Payload: p.Source,
 				}, nil
 			},
 			Subscribe: func(p graphql.ResolveParams) (interface{}, error) {
-				pubsub := PubSubChannel(p.Args["channel"].(string))
+				pubsub := redis.Channel(p.Args["channel"].(string))
 
 				log.Println("Redis subscribed")
 
@@ -80,33 +76,9 @@ func init() {
 		Mutation:     graphql.NewObject(rootMutation),
 		Subscription: graphql.NewObject(rootSubscription),
 	}
-	schema, _ = graphql.NewSchema(schemaConfig)
-}
+	schema, _ := graphql.NewSchema(schemaConfig)
 
-func Handle(subscribeMessage SubscribeMessage) chan *graphql.Result {
-	requestString := subscribeMessage.Payload.Query
+	memoizedSchema = &schema
 
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Make sure to cancel the context when the Subscribe method returns
-	defer cancel()
-
-	// Parse the incoming message as a GraphQL query
-	params := graphql.Params{Schema: schema, RequestString: requestString, Context: ctx}
-
-	subscription := graphql.Subscribe(params)
-
-	return subscription
-}
-
-func PubSubClient() *redis.Client {
-	return redis.NewClient(&redis.Options{
-		Addr:     "redis:6379",
-		Password: "password",
-		DB:       0, // use default DB
-	})
-}
-
-func PubSubChannel(channelName string) *redis.PubSub {
-	return rdb.Subscribe(context.Background(), channelName)
+	return schema
 }
